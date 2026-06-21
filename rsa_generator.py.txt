@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Advanced RSA Key Pair Generator and Encrypt/Decrypt Demo
+--------------------------------------------------------
+Pure Python implementation using only built-in libraries.
+Generates RSA keys (p, q, n, phi, e, d), encrypts a user message,
+and decrypts it back, showing all intermediate mathematical steps.
+
+Author: IIT Kanpur B.Cyber Applicant
+Date: June 2026
+"""
+
+import random
+import math
+import time
+import sys
+
+# ------------------- Mathematical Primitives -------------------
+
+def is_prime(n, k=8):
+    """
+    Miller-Rabin primality test with k rounds.
+    Returns True if n is probably prime, False if composite.
+    For numbers < 2^64, deterministic bases can be used, but we keep it probabilistic.
+    """
+    if n < 2:
+        return False
+    # Small primes quick divisibility check
+    small_primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
+    for p in small_primes:
+        if n % p == 0:
+            return n == p
+    # Write n-1 = d * 2^s with d odd
+    d = n - 1
+    s = 0
+    while d % 2 == 0:
+        d //= 2
+        s += 1
+    # Witness loop
+    for _ in range(k):
+        a = random.randrange(2, n - 1)
+        x = pow(a, d, n)          # modular exponentiation: a^d mod n
+        if x == 1 or x == n - 1:
+            continue
+        for _ in range(s - 1):
+            x = pow(x, 2, n)
+            if x == n - 1:
+                break
+        else:
+            return False
+    return True
+
+def generate_prime(bits):
+    """
+    Generate a random prime of given bit length (at least 2 bits).
+    Uses random.getrandbits() to produce odd candidates and tests with Miller-Rabin.
+    """
+    while True:
+        # Generate random odd number with the most significant bit set
+        candidate = random.getrandbits(bits)
+        # Ensure the highest bit is 1 (to have exactly 'bits' length) and number is odd
+        candidate |= (1 << (bits - 1)) | 1
+        if is_prime(candidate):
+            return candidate
+
+def egcd(a, b):
+    """
+    Extended Euclidean Algorithm.
+    Returns (gcd, x, y) such that a*x + b*y = gcd(a, b).
+    """
+    if b == 0:
+        return a, 1, 0
+    else:
+        g, x1, y1 = egcd(b, a % b)
+        # Back substitution
+        return g, y1, x1 - (a // b) * y1
+
+def modinv(a, m):
+    """
+    Modular multiplicative inverse of a modulo m.
+    Assumes gcd(a, m) = 1. Uses extended Euclidean algorithm.
+    """
+    g, x, _ = egcd(a, m)
+    if g != 1:
+        raise ValueError(f"No inverse: gcd({a}, {m}) = {g}")
+    return x % m
+
+# ------------------- RSA Core Functions -------------------
+
+def rsa_keygen(bits):
+    """
+    Generate RSA key pair.
+    Returns (p, q, n, phi, e, d) where n = p*q, phi = (p-1)*(q-1),
+    e is the public exponent (65537), and d is the private exponent.
+    Ensures e is coprime to phi; otherwise regenerates primes.
+    """
+    e = 65537  # standard public exponent
+    while True:
+        # Generate two distinct primes
+        p = generate_prime(bits)
+        q = generate_prime(bits)
+        if p == q:
+            continue
+        n = p * q
+        phi = (p - 1) * (q - 1)
+        # Check if e is coprime to phi
+        if math.gcd(e, phi) == 1:
+            d = modinv(e, phi)
+            return p, q, n, phi, e, d
+        # Otherwise retry with new primes
+
+def rsa_encrypt_int(m, e, n):
+    """Encrypt integer message m using public key (e, n)."""
+    if m >= n:
+        raise ValueError("Message integer is too large for modulus n.")
+    return pow(m, e, n)   # modular exponentiation
+
+def rsa_decrypt_int(c, d, n):
+    """Decrypt integer ciphertext c using private key (d, n)."""
+    return pow(c, d, n)   # modular exponentiation
+
+# ------------------- I/O and Formatting Helpers -------------------
+
+def int_to_bytes_utf8(x):
+    """Convert integer back to UTF-8 string (big-endian)."""
+    if x == 0:
+        return ""
+    # Determine number of bytes needed
+    byte_len = (x.bit_length() + 7) // 8
+    return x.to_bytes(byte_len, 'big').decode('utf-8', errors='replace')
+
+def bytes_utf8_to_int(s):
+    """Convert UTF-8 string to integer (big-endian)."""
+    return int.from_bytes(s.encode('utf-8'), 'big')
+
+def print_boxed(title, content_lines, width=80):
+    """Print a box with a title and content lines."""
+    border = '+' + '-' * (width - 2) + '+'
+    print(border)
+    # Title
+    if title:
+        title_line = f"| {title:<{width-4}} |"
+        print(title_line)
+        print('|' + '-' * (width - 2) + '|')
+    for line in content_lines:
+        # Truncate or pad line to fit inside box
+        if len(line) > width - 4:
+            line = line[:width-7] + '...'
+        print(f"| {line:<{width-4}} |")
+    print(border)
+
+# ------------------- Main Program -------------------
+
+def main():
+    print("\n" + "="*80)
+    print("          ADVANCED RSA KEY PAIR GENERATOR & ENCRYPTION DEMO")
+    print("="*80 + "\n")
+
+    # 1. User input
+    message = input("Enter a short text message to encrypt: ").strip()
+    if not message:
+        print("No message entered. Using default 'Hello RSA'.")
+        message = "Hello RSA"
+
+    # 2. Key generation (using 32-bit primes for speed; adjust as needed)
+    bits = 32   # p and q are 32-bit each → n ~ 64 bits, sufficient for demo
+    print(f"\nGenerating RSA keys with {bits}-bit primes (n ~ {2*bits} bits)...")
+    start_time = time.time()
+    p, q, n, phi, e, d = rsa_keygen(bits)
+    gen_time = time.time() - start_time
+    print(f"Key generation completed in {gen_time:.3f} seconds.\n")
+
+    # 3. Display key components in a pretty box
+    key_lines = [
+        f"p (prime)        = {p}",
+        f"q (prime)        = {q}",
+        f"n = p * q        = {n}",
+        f"phi = (p-1)*(q-1)= {phi}",
+        f"e (public exp)   = {e}",
+        f"d (private exp)  = {d}",
+        f"Modulus size     = {n.bit_length()} bits"
+    ]
+    print_boxed("RSA KEY COMPONENTS", key_lines)
+
+    # 4. Convert message to integer
+    m_int = bytes_utf8_to_int(message)
+    if m_int >= n:
+        print("\n[ERROR] Message is too long for the modulus. Please enter a shorter message.")
+        sys.exit(1)
+    print(f"\nPlaintext message  : \"{message}\"")
+    print(f"Plaintext as integer: {m_int} (0x{m_int:02X})")
+
+    # 5. Encryption
+    c_int = rsa_encrypt_int(m_int, e, n)
+    print(f"Ciphertext integer : {c_int}")
+    print(f"Ciphertext (hex)   : 0x{c_int:02X}")
+
+    # 6. Decryption
+    decrypted_int = rsa_decrypt_int(c_int, d, n)
+    decrypted_msg = int_to_bytes_utf8(decrypted_int)
+    print(f"Decrypted integer  : {decrypted_int}")
+    print(f"Decrypted message  : \"{decrypted_msg}\"")
+
+    # 7. Verification
+    if decrypted_msg == message:
+        print("\n[SUCCESS] Encryption and decryption round-trip verified!")
+    else:
+        print("\n[ERROR] Round-trip failed. Something went wrong.")
+
+    # 8. Show mathematical steps in a detailed box
+    steps = [
+        "ENCRYPTION:  c = m^e mod n",
+        f"   {m_int}^{e} mod {n} = {c_int}",
+        "",
+        "DECRYPTION:  m = c^d mod n",
+        f"   {c_int}^{d} mod {n} = {decrypted_int}",
+        "",
+        f"Recovered text: \"{decrypted_msg}\""
+    ]
+    print_boxed("MATHEMATICAL OPERATIONS", steps)
+
+    # 9. Additional optional check: show Euler's theorem validation
+    # Compute m^phi mod n should be 1 if gcd(m,n)=1, but we skip for brevity.
+
+    print("\n" + "="*80)
+    print("END OF RSA DEMONSTRATION")
+    print("="*80 + "\n")
+
+if __name__ == "__main__":
+    main()
